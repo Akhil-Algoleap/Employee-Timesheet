@@ -3,55 +3,44 @@ const onedrive = require('../services/onedrive.service');
 
 async function syncAll() {
     try {
-        console.log("🚀 Starting Full Sync: Database -> OneDrive...");
+        console.log("🚀 Starting Full Sync: Database -> OneDrive (Spec: Image Columns)...");
 
         // 1. Sync Employees
-        console.log("\nSyncing Employees...");
+        console.log("\nSyncing Employees (Sheet: Employee Details)...");
         const emps = (await db.query('SELECT * FROM employees')).rows;
         const onedriveEmps = await onedrive.getTableRows('EmployeesTable');
         for (const emp of emps) {
             const empToSave = {
-                employee_id: emp.employee_id,
-                employee_name: emp.employee_name,
-                joining_date: emp.joining_date ? (emp.joining_date instanceof Date ? emp.joining_date.toISOString().split('T')[0] : emp.joining_date) : '',
-                reporting_manager: emp.reporting_manager || '',
-                dt_leader: emp.dt_leader || '',
-                client: emp.client || 'CBRE',
-                email: emp.email || '',
-                billing_category: emp.billing_category || 'No'
+                "Name": emp.employee_name,
+                "CBRE EMP ID": emp.employee_id,
+                "Joining Date": emp.joining_date ? (emp.joining_date instanceof Date ? emp.joining_date.toISOString().split('T')[0] : emp.joining_date) : '',
+                "Email": emp.email || '',
+                "D&T Leader": emp.dt_leader || '',
+                "Reporting Manager": emp.reporting_manager || '',
+                "Client": emp.client || 'CBRE',
+                "Billing Category": emp.billing_category || 'No'
             };
-            const existing = onedriveEmps.find(e => e.employee_id === emp.employee_id);
+            const existing = onedriveEmps.find(e => e["CBRE EMP ID"] === emp.employee_id);
             if (existing) {
                 console.log(`Updating employee: ${emp.employee_name}`);
-                await onedrive.updateTableRow('EmployeesTable', emp.employee_id, empToSave, 'employee_id');
+                await onedrive.updateTableRow('EmployeesTable', emp.employee_id, empToSave, 'CBRE EMP ID');
             } else {
                 console.log(`Adding employee: ${emp.employee_name}`);
-                await onedrive.addTableRow('EmployeesTable', empToSave);
+                await onedrive.addTableRow('EmployeesTable', { "S.No": onedriveEmps.length + 1, ...empToSave });
             }
         }
 
-        // 2. Sync Attendance (Last 2 months to avoid overwhelming Graph API)
-        console.log("\nSyncing Attendance (Last 60 days)...");
-        const attRes = await db.query("SELECT * FROM attendance WHERE date >= NOW() - INTERVAL '60 days'");
-        const atts = attRes.rows;
-        const onedriveAtt = await onedrive.getTableRows('AttendanceTable');
-        for (const att of atts) {
-            const dateStr = att.date instanceof Date ? att.date.toISOString().split('T')[0] : att.date;
-            const attId = `${att.employee_id}_${dateStr}`;
-            const attToSave = {
-                id: attId,
-                employee_id: att.employee_id,
-                date: dateStr,
-                day: att.day,
-                working_hours: att.working_hours
-            };
-            const existing = onedriveAtt.find(a => a.id === attId);
-            if (!existing) {
-                console.log(`Adding attendance: ${attId}`);
-                await onedrive.addTableRow('AttendanceTable', attToSave);
-            } else if (existing.working_hours !== att.working_hours) {
-                console.log(`Updating attendance: ${attId}`);
-                await onedrive.updateTableRow('AttendanceTable', attId, attToSave, 'id');
+        // 2. Sync Attendance (Sheet: Timesheet - Pivoted Monthly)
+        console.log("\nSyncing Timesheet (Pivoted Monthly)...");
+        const uniqueMonths = await db.query("SELECT DISTINCT EXTRACT(YEAR FROM date) as year, EXTRACT(MONTH FROM date) as month FROM attendance WHERE date >= NOW() - INTERVAL '60 days'");
+        
+        const { syncTimesheetRow } = require('../services/api.service');
+        for (const monthRow of uniqueMonths.rows) {
+            const y = parseInt(monthRow.year);
+            const m = parseInt(monthRow.month);
+            console.log(`Syncing month: ${m}/${y}`);
+            for (const emp of emps) {
+                await syncTimesheetRow(emp.employee_id, y, m);
             }
         }
 
@@ -62,33 +51,22 @@ async function syncAll() {
         const onedrivePo = await onedrive.getTableRows('POSheetTable');
         for (const po of poRows) {
             const poToSave = {
-                id: po.id,
-                employee_id: po.employee_id,
-                year: po.year,
-                month: po.month,
-                invoice_no: po.invoice_no || '',
-                po_number: po.po_number || '',
-                sow_no: po.sow_no || '',
-                cbre_idc_leader: po.cbre_idc_leader || '',
-                rate_per_hour: po.rate_per_hour || '',
-                gst: po.gst ?? 18,
-                timesheet_received: po.timesheet_received || '',
-                timesheet_verified: po.timesheet_verified || '',
-                timesheet_sent_to_cbre: po.timesheet_sent_to_cbre || '',
-                approvals: po.approvals || '',
-                notes: po.notes || '',
-                work_location: po.work_location || '',
-                resource_type: po.resource_type || '',
-                vendor_name: po.vendor_name || 'Algoleap',
-                exits: po.exits || '',
-                is_finalized: po.is_finalized ? 'true' : 'false',
-                updated_at: po.updated_at instanceof Date ? po.updated_at.toISOString() : new Date().toISOString()
+                "Emp ID": po.employee_id,
+                "Invoice No": po.invoice_no || '',
+                "PO Number": po.po_number || '',
+                "SOW No": po.sow_no || '',
+                "D&T Leader": po.cbre_idc_leader || '',
+                "Reporting Manager": po.reporting_manager || '',
+                "Rate Per Hour": po.rate_per_hour || '',
+                "Notes": po.notes || '',
+                "Work Location": po.work_location || '',
+                "is_finalized": po.is_finalized ? 'true' : 'false'
             };
             const existing = onedrivePo.find(p => p.id === po.id);
             if (existing) {
                 await onedrive.updateTableRow('POSheetTable', po.id, poToSave, 'id');
             } else {
-                await onedrive.addTableRow('POSheetTable', poToSave);
+                await onedrive.addTableRow('POSheetTable', { "No": onedrivePo.length + 1, "id": po.id, ...poToSave });
             }
         }
 

@@ -1,6 +1,32 @@
 const cron = require('node-cron');
 const db = require('../config/db');
 const { parseTimesheet } = require('../services/parser.service');
+const onedrive = require('../services/onedrive.service');
+
+async function syncJobToOneDrive(jobId) {
+    try {
+        const jobRes = await db.query('SELECT * FROM timesheet_logs WHERE id = $1', [jobId]);
+        if (jobRes.rows.length === 0) return;
+        const job = jobRes.rows[0];
+
+        const logToSave = {
+            "ID": job.id,
+            "File Name": job.extracted_timesheet_filename,
+            "Status": job.status,
+            "Created At": job.created_at ? (job.created_at instanceof Date ? job.created_at.toISOString() : job.created_at) : new Date().toISOString()
+        };
+
+        const logs = await onedrive.getTableRows('LogsTable');
+        const existing = logs.find(l => String(l.ID) === String(job.id));
+        if (existing) {
+            await onedrive.updateTableRow('LogsTable', job.id, logToSave, 'ID');
+        } else {
+            await onedrive.addTableRow('LogsTable', logToSave);
+        }
+    } catch (err) {
+        console.error("OneDrive Log Sync Error:", err.message);
+    }
+}
 
 // Concurrency Lock: Prevents multiple processor runs from overlapping
 let isProcessing = false;
@@ -65,6 +91,7 @@ async function processPendingLogs(verbose = false) {
             const job = res.rows[0];
             jobsProcessed++;
             console.log(`Processor Worker: Starting job ID ${job.id} [${jobsProcessed}] for file ${job.extracted_timesheet_filename}`);
+            await syncJobToOneDrive(job.id);
 
             try {
                 // CALL THE PARSER
@@ -72,6 +99,7 @@ async function processPendingLogs(verbose = false) {
 
                 // Update status to completed
                 await db.query("UPDATE timesheet_logs SET status = 'completed' WHERE id = $1", [job.id]);
+                await syncJobToOneDrive(job.id);
                 console.log(`Processor Worker: Successfully completed job ID ${job.id}`);
             } catch (err) {
                 console.error(`Processor Worker: Job ID ${job.id} failed:`, err.message || err);
@@ -84,6 +112,7 @@ async function processPendingLogs(verbose = false) {
 
                     // Update status to failed
                     await db.query("UPDATE timesheet_logs SET status = 'failed', error_message = $2 WHERE id = $1", [job.id, err.message]);
+                    await syncJobToOneDrive(job.id);
                 } catch (innerErr) {
                     console.error(`Processor Worker: Could not even mark job ${job.id} as failed:`, innerErr.message);
                 }

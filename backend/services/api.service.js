@@ -129,22 +129,22 @@ async function saveEmployeeData(employeeData) {
             empData.billing_category || 'No'
         ]);
 
-        // 2. Sync Employee to OneDrive
+        // 2. Sync Employee to OneDrive - Match exact column names
         const empToSave = {
-            employee_id: empData.employee_id,
-            employee_name: empData.employee_name,
-            joining_date: empData.joining_date || '',
-            reporting_manager: empData.reporting_manager || '',
-            dt_leader: empData.dt_leader || '',
-            client: empData.client || 'CBRE',
-            email: empData.email || '',
-            billing_category: empData.billing_category || 'No'
+            "Name": empData.employee_name,
+            "CBRE EMP ID": empData.employee_id,
+            "Joining Date": empData.joining_date || '',
+            "Email": empData.email || '',
+            "D&T Leader": empData.dt_leader || '',
+            "Reporting Manager": empData.reporting_manager || '',
+            "Client": empData.client || 'CBRE',
+            "Billing Category": empData.billing_category || 'No'
         };
-        // Fire and forget OneDrive sync to avoid slowing down UI
+        
         onedrive.getTableRows('EmployeesTable').then(employees => {
-            const existing = employees.find(e => e.employee_id === empData.employee_id);
-            if (existing) onedrive.updateTableRow('EmployeesTable', empData.employee_id, empToSave, 'employee_id');
-            else onedrive.addTableRow('EmployeesTable', empToSave);
+            const existing = employees.find(e => e["CBRE EMP ID"] === empData.employee_id);
+            if (existing) onedrive.updateTableRow('EmployeesTable', empData.employee_id, empToSave, 'CBRE EMP ID');
+            else onedrive.addTableRow('EmployeesTable', { "S.No": employees.length + 1, ...empToSave });
         }).catch(err => console.error("OneDrive Employee Sync Error:", err));
 
         // 3. Upsert attendance in DB
@@ -158,20 +158,11 @@ async function saveEmployeeData(employeeData) {
                         working_hours = EXCLUDED.working_hours;
                 `;
                 await db.query(attQuery, [empData.employee_id, record.date, record.day, record.working_hours]);
-                
-                // Sync to OneDrive
-                const attToSave = {
-                    id: `${empData.employee_id}_${record.date}`,
-                    employee_id: empData.employee_id,
-                    date: record.date,
-                    day: record.day,
-                    working_hours: record.working_hours
-                };
-                onedrive.getTableRows('AttendanceTable').then(allAtt => {
-                    const existing = allAtt.find(a => a.id === attToSave.id);
-                    if (existing) onedrive.updateTableRow('AttendanceTable', attToSave.id, attToSave, 'id');
-                    else onedrive.addTableRow('AttendanceTable', attToSave);
-                }).catch(err => console.error("OneDrive Attendance Sync Error:", err));
+            }
+            
+            // If we have year/month, trigger the monthly row sync for OneDrive
+            if (employeeData.year && employeeData.month) {
+                syncTimesheetRow(empData.employee_id, employeeData.year, employeeData.month);
             }
         }
 
@@ -329,34 +320,24 @@ async function savePOSheetRow(data) {
             data.exits || '', data.is_finalized ? true : false
         ]);
 
-        // 2. Sync to OneDrive
+        // 2. Sync to OneDrive - Match exact column names from image
         const poToSave = {
-            id: compositeId,
-            employee_id: data.employee_id,
-            year: data.year,
-            month: data.month,
-            invoice_no: data.invoice_no || '',
-            po_number: data.po_number || '',
-            sow_no: data.sow_no || '',
-            cbre_idc_leader: data.cbre_idc_leader || '',
-            rate_per_hour: data.rate_per_hour || '',
-            gst: data.gst ?? 18,
-            timesheet_received: data.timesheet_received || '',
-            timesheet_verified: data.timesheet_verified || '',
-            timesheet_sent_to_cbre: data.timesheet_sent_to_cbre || '',
-            approvals: data.approvals || '',
-            notes: data.notes || '',
-            work_location: data.work_location || '',
-            resource_type: data.resource_type || '',
-            vendor_name: data.vendor_name || 'Algoleap',
-            exits: data.exits || '',
-            is_finalized: data.is_finalized ? 'true' : 'false',
-            updated_at: new Date().toISOString()
+            "Emp ID": data.employee_id,
+            "Resource Name": data.employee_name || '',
+            "Invoice No": data.invoice_no || '',
+            "PO Number": data.po_number || '',
+            "SOW No": data.sow_no || '',
+            "D&T Leader": data.cbre_idc_leader || '',
+            "Reporting Manager": data.reporting_manager || '',
+            "Rate Per Hour": data.rate_per_hour || '',
+            "Notes": data.notes || '',
+            "Work Location": data.work_location || '',
+            "is_finalized": data.is_finalized ? 'true' : 'false'
         };
         onedrive.getTableRows('POSheetTable').then(poRows => {
             const existing = poRows.find(p => p.id === compositeId);
             if (existing) onedrive.updateTableRow('POSheetTable', compositeId, poToSave, 'id');
-            else onedrive.addTableRow('POSheetTable', poToSave);
+            else onedrive.addTableRow('POSheetTable', { "No": poRows.length + 1, "id": compositeId, ...poToSave });
         }).catch(err => console.error("OneDrive PO Sync Error:", err));
 
         return { success: true };
@@ -406,6 +387,69 @@ async function getTimesheetStatus(year, month) {
     }
 }
 
+async function syncTimesheetRow(employee_id, year, month) {
+    try {
+        const emp = (await db.query('SELECT * FROM employees WHERE employee_id = $1', [employee_id])).rows[0];
+        if (!emp) return;
+
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const endDate = `${year}-${String(month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+
+        const att = (await db.query('SELECT * FROM attendance WHERE employee_id = $1 AND date >= $2 AND date <= $3', [employee_id, startDate, endDate])).rows;
+
+        const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
+        
+        const row = {
+            "Employee Name": emp.employee_name,
+            "Employee ID": emp.employee_id,
+            "Joining Date": emp.joining_date || '',
+            "Reporting Manager": emp.reporting_manager || '',
+            "D&T Leader": emp.dt_leader || '',
+            "Client": emp.client || 'CBRE',
+            "Billing Category": emp.billing_category || 'No',
+            "Month": `${monthName} ${year}`
+        };
+
+        let totalHours = 0;
+        let plAvailed = 0;
+        let lwp = 0;
+
+        for (let i = 1; i <= daysInMonth; i++) {
+            const d = new Date(year, month - 1, i);
+            const dateStr = d.toISOString().split('T')[0];
+            const dayName = d.toLocaleString('default', { weekday: 'short' });
+            const colName = `${i}-${dayName}`;
+            
+            const record = att.find(r => (r.date instanceof Date ? r.date.toISOString().split('T')[0] : r.date) === dateStr);
+            if (record) {
+                row[colName] = record.working_hours;
+                const hrs = parseFloat(record.working_hours);
+                if (!isNaN(hrs)) totalHours += hrs;
+                else if (record.working_hours === 'PL') plAvailed++;
+                else if (record.working_hours === 'LWP') lwp++;
+            } else {
+                row[colName] = '';
+            }
+        }
+
+        row["Total Hour"] = totalHours;
+        row["PL Availed"] = plAvailed;
+        row["LWP"] = lwp;
+        row["Total Billing hou"] = totalHours + (plAvailed * 8); // Assuming 8 hrs for PL
+
+        const compositeId = `${employee_id}_${year}_${month}`;
+        onedrive.getTableRows('AttendanceTable').then(rows => {
+            const existing = rows.find(r => r.id === compositeId);
+            if (existing) onedrive.updateTableRow('AttendanceTable', compositeId, row, 'id');
+            else onedrive.addTableRow('AttendanceTable', { "id": compositeId, ...row });
+        }).catch(err => console.error("OneDrive Timesheet Sync Error:", err));
+
+    } catch (error) {
+        console.error("Error syncing timesheet row:", error);
+    }
+}
+
 module.exports = {
     getAttendanceData,
     getTimesheetLogs,
@@ -414,5 +458,6 @@ module.exports = {
     getPOSheetData,
     savePOSheetRow,
     deleteEmployee,
-    getTimesheetStatus
+    getTimesheetStatus,
+    syncTimesheetRow
 };

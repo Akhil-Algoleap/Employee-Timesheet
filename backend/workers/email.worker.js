@@ -2,8 +2,8 @@ const cron = require('node-cron');
 const { getTimesheetEmails, getAttachments } = require('../services/outlook.service');
 const { uploadFile } = require('../services/storage.service');
 const { logPendingTimesheet, isAttachmentProcessed, getLatestReceivedTime } = require('../services/db.service');
-// Import processor for immediate follow-up
-const { processPendingLogs } = require('./processor.worker');
+// Import processor for immediate follow-up and sync
+const { processPendingLogs, syncJobToOneDrive } = require('./processor.worker');
 
 async function processTimesheetEmails() {
     console.log(`[${new Date().toLocaleString()}] Starting timesheet email ingestion...`);
@@ -44,7 +44,7 @@ async function processTimesheetEmails() {
                 const storagePath = await uploadFile(fileBuffer, attachment.name);
                 
                 // 2. Log into timesheet_logs as 'pending'
-                await logPendingTimesheet(
+                const loggedJob = await logPendingTimesheet(
                     email.id, 
                     attachment.name, 
                     storagePath, 
@@ -52,6 +52,7 @@ async function processTimesheetEmails() {
                     email.folderMonth,
                     email.folderYear
                 );
+                await syncJobToOneDrive(loggedJob.id);
                 filesLogged++;
                 console.log(`[${filesLogged}/${excelAttachments.length}] File logged: ${attachment.name}`);
             }
