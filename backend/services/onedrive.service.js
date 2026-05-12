@@ -11,10 +11,10 @@ const REFRESH_TOKEN = process.env.ONEDRIVE_REFRESH_TOKEN;
 
 // Map table names to sheet names
 const SHEET_MAP = {
-  'EmployeesTable': 'Employees',
-  'AttendanceTable': 'Attendance',
-  'POSheetTable': 'POSheet',
-  'LogsTable': 'TimesheetLogs',
+  'EmployeesTable': 'Employee Details',
+  'AttendanceTable': 'Timesheet',
+  'POSheetTable': 'PO Sheet',
+  'LogsTable': 'Automation Logs',
 };
 
 const getAccessToken = async () => {
