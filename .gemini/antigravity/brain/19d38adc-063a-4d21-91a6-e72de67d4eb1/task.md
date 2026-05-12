@@ -1,0 +1,10 @@
+- [x] Modify `init-azure-db.js` and run an ALTER TABLE command to add `is_finalized` to `po_sheet`.
+- [x] Update `parser.service.js` target month logic (>= 20 = current, < 20 = previous).
+- [x] Update `parser.service.js` sheet filtering to ignore non-target months.
+- [x] Update `parser.service.js` to fetch `is_finalized` and skip locked employees.
+- [x] Update `parser.service.js` to calculate PLs using only finalized previous months.
+- [x] Update `api.service.js` to return `is_finalized` in `getPOSheetData`.
+- [x] Update `api.service.js` to save `is_finalized` in `saveEmployeeData`.
+- [x] Update `page.js` TimeSheet table to display and toggle `is_finalized` per row.
+- [x] Update `page.js` to include a "Finalize All" button.
+- [x] Verify functionality via UI and server restart.
