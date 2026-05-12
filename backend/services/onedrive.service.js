@@ -1,0 +1,181 @@
+const { Client } = require('@microsoft/microsoft-graph-client');
+require('isomorphic-fetch');
+
+// Credentials from Environment Variables
+const TENANT_ID = process.env.AZURE_TENANT_ID;
+const CLIENT_ID = process.env.AZURE_CLIENT_ID;
+const CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
+const DRIVE_ID = process.env.ONEDRIVE_DRIVE_ID;
+const ITEM_ID = process.env.ONEDRIVE_ITEM_ID;
+const REFRESH_TOKEN = process.env.ONEDRIVE_REFRESH_TOKEN;
+
+// Map table names to sheet names
+const SHEET_MAP = {
+  'EmployeesTable': 'Employees',
+  'AttendanceTable': 'Attendance',
+  'POSheetTable': 'POSheet',
+  'LogsTable': 'TimesheetLogs',
+};
+
+const getAccessToken = async () => {
+  if (!REFRESH_TOKEN) throw new Error('ONEDRIVE_REFRESH_TOKEN is missing');
+  
+  const params = new URLSearchParams();
+  params.append('client_id', CLIENT_ID);
+  params.append('client_secret', CLIENT_SECRET);
+  params.append('grant_type', 'refresh_token');
+  params.append('refresh_token', REFRESH_TOKEN);
+  params.append('scope', 'https://graph.microsoft.com/Files.ReadWrite offline_access');
+
+  const response = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
+    method: 'POST',
+    body: params,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+
+  const data = await response.json();
+  if (data.error) throw new Error(`${data.error}: ${data.error_description}`);
+  return data.access_token;
+};
+
+const getGraphClient = async () => {
+  const token = await getAccessToken();
+  return Client.init({
+    authProvider: (done) => done(null, token),
+  });
+};
+
+const getSheetName = (tableName) => {
+  const sheet = SHEET_MAP[tableName];
+  if (!sheet) throw new Error(`Unknown table name: ${tableName}`);
+  return sheet;
+};
+
+const colToLetter = (col) => {
+  let letter = '';
+  col += 1;
+  while (col > 0) {
+    const rem = (col - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    col = Math.floor((col - 1) / 26);
+  }
+  return letter;
+};
+
+const normalizeHeaders = (rawHeaders) => {
+  return rawHeaders.map((h) => {
+    const trimmed = (h ?? '').toString().trim();
+    return trimmed.toLowerCase() === 'id' ? 'id' : trimmed;
+  });
+};
+
+const getTableRows = async (tableName) => {
+  const sheetName = getSheetName(tableName);
+  const client = await getGraphClient();
+  
+  const res = await client
+    .api(`/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/${encodeURIComponent(sheetName)}/usedRange`)
+    .get();
+
+  const values = res.values;
+  if (!values || values.length < 2) return [];
+
+  const headers = normalizeHeaders(values[0]);
+  return values.slice(1).map((row) => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] ?? ''; });
+    return obj;
+  });
+};
+
+const addTableRow = async (tableName, data) => {
+  const sheetName = getSheetName(tableName);
+  const client = await getGraphClient();
+
+  const headerRes = await client
+    .api(`/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/${encodeURIComponent(sheetName)}/usedRange`)
+    .get();
+
+  const values = headerRes.values;
+  if (!values || values.length === 0) throw new Error(`Sheet "${sheetName}" is empty`);
+
+  const headers = normalizeHeaders(values[0]);
+  const newRow = headers.map((h) => data[h] ?? '');
+
+  const nextRow = values.length + 1;
+  const endCol = colToLetter(headers.length - 1);
+  const range = `A${nextRow}:${endCol}${nextRow}`;
+
+  await client
+    .api(`/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/${encodeURIComponent(sheetName)}/range(address='${range}')`)
+    .patch({ values: [newRow] });
+
+  return data;
+};
+
+const updateTableRow = async (tableName, id, data, keyColumn = 'id') => {
+  const sheetName = getSheetName(tableName);
+  const client = await getGraphClient();
+
+  const res = await client
+    .api(`/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/${encodeURIComponent(sheetName)}/usedRange`)
+    .get();
+
+  const values = res.values;
+  if (!values || values.length < 2) throw new Error('Sheet is empty');
+
+  const headers = normalizeHeaders(values[0]);
+  const idIdx = headers.findIndex(h => h.toLowerCase() === keyColumn.toLowerCase());
+  if (idIdx === -1) throw new Error(`No "${keyColumn}" column found.`);
+
+  const rowIdx = values.findIndex((row, i) => i > 0 && row[idIdx]?.toString().trim() === id.toString().trim());
+  if (rowIdx === -1) throw new Error(`Row with ${keyColumn} ${id} not found`);
+
+  const existingObj = {};
+  headers.forEach((h, i) => { existingObj[h] = values[rowIdx][i] ?? ''; });
+
+  const merged = { ...existingObj, ...data };
+  const newRow = headers.map((h) => merged[h] ?? '');
+
+  const excelRow = rowIdx + 1;
+  const endCol = colToLetter(headers.length - 1);
+  const range = `A${excelRow}:${endCol}${excelRow}`;
+
+  await client
+    .api(`/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/${encodeURIComponent(sheetName)}/range(address='${range}')`)
+    .patch({ values: [newRow] });
+
+  return merged;
+};
+
+const deleteTableRow = async (tableName, id, keyColumn = 'id') => {
+  const sheetName = getSheetName(tableName);
+  const client = await getGraphClient();
+
+  const res = await client
+    .api(`/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/${encodeURIComponent(sheetName)}/usedRange`)
+    .get();
+
+  const values = res.values;
+  if (!values || values.length < 2) throw new Error('Sheet is empty');
+
+  const headers = normalizeHeaders(values[0]);
+  const idIdx = headers.findIndex(h => h.toLowerCase() === keyColumn.toLowerCase());
+  if (idIdx === -1) throw new Error(`No "${keyColumn}" column found.`);
+
+  const rowIdx = values.findIndex((row, i) => i > 0 && row[idIdx]?.toString().trim() === id.toString().trim());
+  if (rowIdx === -1) throw new Error(`Row with ${keyColumn} ${id} not found`);
+
+  const excelRow = rowIdx + 1;
+
+  await client
+    .api(`/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/${encodeURIComponent(sheetName)}/range(address='${excelRow}:${excelRow}')/delete`)
+    .post({ shift: 'Up' });
+};
+
+module.exports = {
+  getTableRows,
+  addTableRow,
+  updateTableRow,
+  deleteTableRow
+};

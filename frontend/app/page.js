@@ -1148,6 +1148,32 @@ function EmployeeDetailsSection() {
     ));
   };
 
+  const handleSaveRow = async (emp) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${BACKEND_URL}/api/po-data/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(emp)
+      });
+      if (!res.ok) throw new Error(`Failed to save ${emp.employee_name}`);
+      
+      setDirtyRows(prev => {
+        const next = new Set(prev);
+        next.delete(emp.employee_id);
+        return next;
+      });
+      
+      alert(`${emp.employee_name} saved successfully!`);
+      fetchEmployees(); // Refresh to update IDs and remove NEW- markers
+    } catch (err) {
+      console.error("Error saving row:", err);
+      alert("Error saving: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSaveAll = async () => {
     if (dirtyRows.size === 0) return;
     try {
@@ -1312,6 +1338,16 @@ function EmployeeDetailsSection() {
                     </select>
                   </td>
                   <td style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                    {(dirtyRows.has(emp.employee_id) || emp.employee_id.startsWith('NEW-')) && (
+                      <button 
+                        onClick={() => handleSaveRow(emp)} 
+                        style={{ background: 'transparent', border: 'none', color: '#22c55e', cursor: 'pointer', padding: '0.25rem' }} 
+                        title="Save Changes"
+                        disabled={loading}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                      </button>
+                    )}
                     <button onClick={() => handleDeleteEmployee(emp)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.25rem' }} title="Delete Employee">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
