@@ -1,5 +1,6 @@
 const xlsx = require('xlsx');
 const db = require('../config/db');
+const onedrive = require('./onedrive.service');
 const { containerClient } = require('../config/storage');
 
 /**
@@ -381,6 +382,53 @@ async function parseTimesheet(job) {
             }
 
             await client.query('COMMIT');
+
+            // --- Real-time Mirror to OneDrive ---
+            try {
+                // 1. Sync Employees
+                for (const emp of sheetEmployees) {
+                    const empToSave = {
+                        employee_id: emp.employee_id,
+                        employee_name: emp.employee_name,
+                        joining_date: emp.joining_date || '',
+                        reporting_manager: emp.reporting_manager || '',
+                        dt_leader: emp.dt_leader || '',
+                        client: emp.client || 'CBRE',
+                        email: emp.email || '',
+                        billing_category: emp.billing_category || 'No'
+                    };
+                    onedrive.getTableRows('EmployeesTable').then(rows => {
+                        const existing = rows.find(r => r.employee_id === emp.employee_id);
+                        if (existing) onedrive.updateTableRow('EmployeesTable', emp.employee_id, empToSave, 'employee_id');
+                        else onedrive.addTableRow('EmployeesTable', empToSave);
+                    }).catch(e => console.error(`Sync Employee ${emp.employee_id} fail:`, e.message));
+                }
+
+                // 2. Sync Attendance
+                const onedriveAtt = await onedrive.getTableRows('AttendanceTable');
+                for (const att of uniqueAttendance) {
+                    const attId = `${att.employee_id}_${att.date}`;
+                    const attToSave = {
+                        id: attId,
+                        employee_id: att.employee_id,
+                        date: att.date,
+                        day: att.day,
+                        working_hours: att.working_hours
+                    };
+                    const existing = onedriveAtt.find(r => r.id === attId);
+                    if (existing) {
+                        // Only update if working_hours changed
+                        if (existing.working_hours !== att.working_hours) {
+                            onedrive.updateTableRow('AttendanceTable', attId, attToSave, 'id').catch(e => {});
+                        }
+                    } else {
+                        onedrive.addTableRow('AttendanceTable', attToSave).catch(e => {});
+                    }
+                }
+            } catch (syncError) {
+                console.error("OneDrive Sync Failure (non-fatal):", syncError.message);
+            }
+            // ------------------------------------
         } catch (e) {
             await client.query('ROLLBACK');
             console.error(`Parser: Error processing sheet ${targetSheetName}:`, e.message);
