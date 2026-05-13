@@ -1,6 +1,7 @@
 const xlsx = require('xlsx');
 const db = require('../config/db');
 const onedrive = require('./onedrive.service');
+const { syncTimesheetRow } = require('./api.service');
 const { containerClient } = require('../config/storage');
 
 /**
@@ -388,42 +389,40 @@ async function parseTimesheet(job) {
                 // 1. Sync Employees
                 for (const emp of sheetEmployees) {
                     const empToSave = {
-                        employee_id: emp.employee_id,
-                        employee_name: emp.employee_name,
-                        joining_date: emp.joining_date || '',
-                        reporting_manager: emp.reporting_manager || '',
-                        dt_leader: emp.dt_leader || '',
-                        client: emp.client || 'CBRE',
-                        email: emp.email || '',
-                        billing_category: emp.billing_category || 'No'
+                        "Name": emp.employee_name,
+                        "CBRE EMP ID": emp.employee_id,
+                        "Joining Date": emp.joining_date || '',
+                        "Reporting Manager": emp.reporting_manager || '',
+                        "D&T Leader": emp.dt_leader || '',
+                        "Client": emp.client || 'CBRE',
+                        "Email": emp.email || '',
+                        "Billing Category": emp.billing_category || 'No'
                     };
                     onedrive.getTableRows('EmployeesTable').then(rows => {
-                        const existing = rows.find(r => r.employee_id === emp.employee_id);
-                        if (existing) onedrive.updateTableRow('EmployeesTable', emp.employee_id, empToSave, 'employee_id');
-                        else onedrive.addTableRow('EmployeesTable', empToSave);
+                        const existing = rows.find(r => r["CBRE EMP ID"] === emp.employee_id);
+                        if (existing) onedrive.updateTableRow('EmployeesTable', emp.employee_id, empToSave, 'CBRE EMP ID');
+                        else onedrive.addTableRow('EmployeesTable', { "S.No": rows.length + 1, ...empToSave });
                     }).catch(e => console.error(`Sync Employee ${emp.employee_id} fail:`, e.message));
                 }
 
-                // 2. Sync Attendance
-                const onedriveAtt = await onedrive.getTableRows('AttendanceTable');
-                for (const att of uniqueAttendance) {
-                    const attId = `${att.employee_id}_${att.date}`;
-                    const attToSave = {
-                        id: attId,
-                        employee_id: att.employee_id,
-                        date: att.date,
-                        day: att.day,
-                        working_hours: att.working_hours
+                // 2. Sync Attendance (Pivoted)
+                const uniqueEmpIds = Array.from(new Set(validSheetAttendance.map(item => item.employee_id)));
+                for (const empId of uniqueEmpIds) {
+                    syncTimesheetRow(empId, sheetYearVal, sheetMonth).catch(e => {});
+                }
+
+                // 3. Sync PO Sheet Status
+                for (const empId of uniqueEmpIds) {
+                    const poToSave = {
+                        "Emp ID (CBRE)": empId,
+                        "Timesheet Received": 'Yes',
+                        "received_via_email": 'true'
                     };
-                    const existing = onedriveAtt.find(r => r.id === attId);
-                    if (existing) {
-                        // Only update if working_hours changed
-                        if (existing.working_hours !== att.working_hours) {
-                            onedrive.updateTableRow('AttendanceTable', attId, attToSave, 'id').catch(e => {});
-                        }
-                    } else {
-                        onedrive.addTableRow('AttendanceTable', attToSave).catch(e => {});
-                    }
+                    onedrive.getTableRows('POSheetTable').then(poRows => {
+                        const existing = poRows.find(p => p["Emp ID (CBRE)"] === empId);
+                        if (existing) onedrive.updateTableRow('POSheetTable', empId, poToSave, 'Emp ID (CBRE)');
+                        else onedrive.addTableRow('POSheetTable', { "S.No": poRows.length + 1, ...poToSave });
+                    }).catch(e => {});
                 }
             } catch (syncError) {
                 console.error("OneDrive Sync Failure (non-fatal):", syncError.message);

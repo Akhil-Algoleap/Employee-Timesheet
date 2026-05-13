@@ -10,16 +10,16 @@ async function syncJobToOneDrive(jobId) {
         const job = jobRes.rows[0];
 
         const logToSave = {
-            "ID": job.id,
+            "id": job.id,
             "File Name": job.extracted_timesheet_filename,
             "Status": job.status,
             "Created At": job.created_at ? (job.created_at instanceof Date ? job.created_at.toISOString() : job.created_at) : new Date().toISOString()
         };
 
         const logs = await onedrive.getTableRows('LogsTable');
-        const existing = logs.find(l => String(l.ID) === String(job.id));
+        const existing = logs.find(l => String(l.id) === String(job.id));
         if (existing) {
-            await onedrive.updateTableRow('LogsTable', job.id, logToSave, 'ID');
+            await onedrive.updateTableRow('LogsTable', job.id, logToSave, 'id');
         } else {
             await onedrive.addTableRow('LogsTable', logToSave);
         }

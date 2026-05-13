@@ -1,5 +1,7 @@
 const { Client } = require('@microsoft/microsoft-graph-client');
 require('isomorphic-fetch');
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // Credentials from Environment Variables
 const TENANT_ID = process.env.AZURE_TENANT_ID;
