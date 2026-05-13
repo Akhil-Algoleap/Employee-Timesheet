@@ -9,7 +9,7 @@ async function syncAll() {
 
         // 1. Sync Employees
         console.log("\nSyncing Employees (Sheet: Employee Details)...");
-        const emps = (await db.query('SELECT * FROM employees')).rows;
+        const emps = (await db.query('SELECT * FROM employees ORDER BY employee_id')).rows;
         const onedriveEmps = await onedrive.getTableRows('EmployeesTable');
         
         let snoCounter = 1; // Start from 1 to re-index everything correctly
@@ -61,7 +61,7 @@ async function syncAll() {
         }
 
         // 3. Sync PO Sheet
-        console.log("\nSyncing PO Sheet Data...");
+        console.log("\nSyncing PO Sheet Data (Sheet: PO Sheet)...");
         const poRes = await db.query("SELECT * FROM po_sheet");
         const poRows = poRes.rows;
         const onedrivePo = await onedrive.getTableRows('POSheetTable');
@@ -69,27 +69,52 @@ async function syncAll() {
         for (const po of poRows) {
             try {
                 const poToSave = {
-                    "No": poSno++,
-                    "Emp ID": po.employee_id,
+                    "S.No": poSno++,
+                    "Emp ID (CBRE)": po.employee_id,
                     "Invoice No": po.invoice_no || '',
                     "PO Number": po.po_number || '',
                     "SOW No": po.sow_no || '',
                     "D&T Leader": po.cbre_idc_leader || '',
                     "Reporting Manager": po.reporting_manager || '',
-                    "Rate Per Hour": po.rate_per_hour || '',
+                    "Rate Per Hour (INR)": po.rate_per_hour || '',
                     "Notes": po.notes || '',
-                    "Work Location": po.work_location || '',
-                    "is_finalized": po.is_finalized ? 'true' : 'false'
+                    "Work Location": po.work_location || ''
                 };
-                const existing = onedrivePo.find(p => p.id === po.id);
+                const existing = onedrivePo.find(p => p["Emp ID (CBRE)"] === po.employee_id);
                 if (existing) {
-                    await onedrive.updateTableRow('POSheetTable', po.id, poToSave, 'id');
+                    await onedrive.updateTableRow('POSheetTable', po.employee_id, poToSave, 'Emp ID (CBRE)');
                 } else {
-                    await onedrive.addTableRow('POSheetTable', { "id": po.id, ...poToSave });
+                    await onedrive.addTableRow('POSheetTable', poToSave);
                 }
                 await sleep(500);
             } catch (e) {
                 console.error(`Failed to sync PO row ${po.id}:`, e.message);
+            }
+        }
+
+        // 4. Sync Automation Logs
+        console.log("\nSyncing Automation Logs (Sheet: Automation Logs)...");
+        const logRes = await db.query("SELECT * FROM timesheet_logs ORDER BY created_at DESC LIMIT 50");
+        const logs = logRes.rows;
+        const onedriveLogs = await onedrive.getTableRows('LogsTable');
+        for (const log of logs) {
+            try {
+                console.log(`Syncing log ID: ${log.id}`);
+                const logToSave = {
+                    "id": log.id,
+                    "File Name": log.extracted_timesheet_filename,
+                    "Status": log.status,
+                    "Created At": log.created_at ? (log.created_at instanceof Date ? log.created_at.toISOString() : log.created_at) : ''
+                };
+                const existing = onedriveLogs.find(l => String(l.id) === String(log.id));
+                if (existing) {
+                    await onedrive.updateTableRow('LogsTable', log.id, logToSave, 'id');
+                } else {
+                    await onedrive.addTableRow('LogsTable', logToSave);
+                }
+                await sleep(500);
+            } catch (e) {
+                console.error(`Failed to sync log ${log.id}:`, e.message);
             }
         }
 

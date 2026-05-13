@@ -177,5 +177,7 @@ module.exports = {
   getTableRows,
   addTableRow,
   updateTableRow,
-  deleteTableRow
+  deleteTableRow,
+  getGraphClient,
+  SHEET_MAP
 };

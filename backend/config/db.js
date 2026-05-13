@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const pool = new Pool({
     host: process.env.DB_HOST,
@@ -7,9 +8,9 @@ const pool = new Pool({
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
     port: process.env.DB_PORT || 5432,
-    ssl: {
+    ssl: process.env.DB_SSL === 'true' ? {
         rejectUnauthorized: false
-    },
+    } : false,
     // Azure-specific optimizations
     max: 10, // Lowered to be safe with Azure connection limits
     idleTimeoutMillis: 10000, // Close idle connections quickly

@@ -322,22 +322,26 @@ async function savePOSheetRow(data) {
 
         // 2. Sync to OneDrive - Match exact column names from image
         const poToSave = {
-            "Emp ID": data.employee_id,
+            "Emp ID (CBRE)": data.employee_id,
             "Resource Name": data.employee_name || '',
             "Invoice No": data.invoice_no || '',
             "PO Number": data.po_number || '',
             "SOW No": data.sow_no || '',
             "D&T Leader": data.cbre_idc_leader || '',
             "Reporting Manager": data.reporting_manager || '',
-            "Rate Per Hour": data.rate_per_hour || '',
+            "Rate Per Hour (INR)": data.rate_per_hour || '',
             "Notes": data.notes || '',
             "Work Location": data.work_location || '',
-            "is_finalized": data.is_finalized ? 'true' : 'false'
+            "Total Working Hours": data.total_hours || '',
+            "PL Availed": data.pl_availed || '',
+            "Total Billing Hours": data.total_billing_hours || '',
+            "Total Billing Amt (W/O GST)": data.billing_amt_no_gst || '',
+            "Timesheet Sent to CBRE": data.timesheet_sent_to_cbre || ''
         };
         onedrive.getTableRows('POSheetTable').then(poRows => {
-            const existing = poRows.find(p => p.id === compositeId);
-            if (existing) onedrive.updateTableRow('POSheetTable', compositeId, poToSave, 'id');
-            else onedrive.addTableRow('POSheetTable', { "No": poRows.length + 1, "id": compositeId, ...poToSave });
+            const existing = poRows.find(p => p["Emp ID (CBRE)"] === data.employee_id);
+            if (existing) onedrive.updateTableRow('POSheetTable', data.employee_id, poToSave, 'Emp ID (CBRE)');
+            else onedrive.addTableRow('POSheetTable', { "S.No": poRows.length + 1, ...poToSave });
         }).catch(err => console.error("OneDrive PO Sync Error:", err));
 
         return { success: true };
@@ -417,11 +421,16 @@ async function syncTimesheetRow(employee_id, year, month) {
 
         for (let i = 1; i <= daysInMonth; i++) {
             const d = new Date(year, month - 1, i);
-            const dateStr = d.toISOString().split('T')[0];
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             const dayName = d.toLocaleString('default', { weekday: 'short' });
             const colName = `${i}-${dayName}`;
             
-            const record = att.find(r => (r.date instanceof Date ? r.date.toISOString().split('T')[0] : r.date) === dateStr);
+            const record = att.find(r => {
+                const rDate = new Date(r.date);
+                const rDateStr = `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}`;
+                return rDateStr === dateStr;
+            });
+
             if (record) {
                 row[colName] = record.working_hours;
                 const hrs = parseFloat(record.working_hours);
@@ -433,10 +442,10 @@ async function syncTimesheetRow(employee_id, year, month) {
             }
         }
 
-        row["Total Hour"] = totalHours;
+        row["Total Hours"] = totalHours;
         row["PL Availed"] = plAvailed;
         row["LWP"] = lwp;
-        row["Total Billing hou"] = totalHours + (plAvailed * 8); // Assuming 8 hrs for PL
+        row["Total Billing hours"] = totalHours + (plAvailed * 8); // Assuming 8 hrs for PL
 
         const compositeId = `${employee_id}_${year}_${month}`;
         onedrive.getTableRows('AttendanceTable').then(rows => {
