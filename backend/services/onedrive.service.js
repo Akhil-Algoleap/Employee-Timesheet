@@ -103,7 +103,12 @@ const addTableRow = async (tableName, data) => {
   if (!values || values.length === 0) throw new Error(`Sheet "${sheetName}" is empty`);
 
   const headers = normalizeHeaders(values[0]);
-  const newRow = headers.map((h) => data[h] ?? '');
+
+  // Normalize incoming data keys to lowercase so they match normalized headers
+  const normalizedData = {};
+  Object.keys(data).forEach(k => { normalizedData[k.trim().toLowerCase()] = data[k]; });
+
+  const newRow = headers.map((h) => normalizedData[h] ?? '');
 
   const nextRow = values.length + 1;
   const endCol = colToLetter(headers.length - 1);
