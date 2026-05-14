@@ -175,11 +175,34 @@ const deleteTableRow = async (tableName, id, keyColumn = 'id') => {
     .post({ shift: 'Up' });
 };
 
+const getNextSno = async (tableName) => {
+  try {
+    const rows = await getTableRows(tableName);
+    if (!rows || rows.length === 0) return 1;
+    
+    // Find the max value in the 'S.No' column (case-insensitive)
+    let maxSno = 0;
+    rows.forEach(row => {
+      const snoKey = Object.keys(row).find(k => k.toLowerCase() === 's.no');
+      if (snoKey) {
+        const val = parseInt(row[snoKey]);
+        if (!isNaN(val) && val > maxSno) maxSno = val;
+      }
+    });
+    
+    return maxSno + 1;
+  } catch (error) {
+    console.error(`Error calculating next S.No for ${tableName}:`, error.message);
+    return 1; // Fallback
+  }
+};
+
 module.exports = {
   getTableRows,
   addTableRow,
   updateTableRow,
   deleteTableRow,
   getGraphClient,
+  getNextSno,
   SHEET_MAP
 };

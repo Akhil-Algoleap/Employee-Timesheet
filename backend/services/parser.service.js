@@ -102,7 +102,7 @@ async function parseTimesheet(job) {
         for (let i = 0; i < 20; i++) {
             const row = sheetRows[i];
             if (!row) continue;
-            const colIndex = row.findIndex(cell => cell && String(cell).includes('Employee Name') && !String(cell).includes(':'));
+            const colIndex = row.findIndex(cell => cell && (String(cell).includes('Employee Name') || String(cell).includes('Resource Name')));
             if (colIndex !== -1 && row.length > 10) {
                 tempHeaderIndex = i;
                 tempColOffset = colIndex;
@@ -210,8 +210,7 @@ async function parseTimesheet(job) {
         const sheetMonth = sheetDateObj.getUTCMonth() + 1;
         
         if (targetMonth !== null && (sheetMonth !== targetMonth || sheetYearVal !== targetYear)) {
-            console.log(`Parser: Skipping sheet '${targetSheetName}' (Month ${sheetMonth}/${sheetYearVal} doesn't match target ${targetMonth}/${targetYear})`);
-            continue;
+            console.log(`Parser: Sheet '${targetSheetName}' (Month ${sheetMonth}/${sheetYearVal}) does not match target ${targetMonth}/${targetYear}. Still processing as requested.`);
         }
         
         const sheetQuarter = Math.ceil(sheetMonth / 3);
@@ -398,10 +397,13 @@ async function parseTimesheet(job) {
                         "Email": emp.email || '',
                         "Billing Category": emp.billing_category || 'No'
                     };
-                    onedrive.getTableRows('EmployeesTable').then(rows => {
+                    onedrive.getTableRows('EmployeesTable').then(async rows => {
                         const existing = rows.find(r => r["CBRE EMP ID"] === emp.employee_id);
                         if (existing) onedrive.updateTableRow('EmployeesTable', emp.employee_id, empToSave, 'CBRE EMP ID');
-                        else onedrive.addTableRow('EmployeesTable', { "S.No": rows.length + 1, ...empToSave });
+                        else {
+                            const nextSno = await onedrive.getNextSno('EmployeesTable');
+                            onedrive.addTableRow('EmployeesTable', { "S.No": nextSno, ...empToSave });
+                        }
                     }).catch(e => console.error(`Sync Employee ${emp.employee_id} fail:`, e.message));
                 }
 
@@ -418,10 +420,13 @@ async function parseTimesheet(job) {
                         "Timesheet Received": 'Yes',
                         "received_via_email": 'true'
                     };
-                    onedrive.getTableRows('POSheetTable').then(poRows => {
+                    onedrive.getTableRows('POSheetTable').then(async poRows => {
                         const existing = poRows.find(p => p["Emp ID (CBRE)"] === empId);
                         if (existing) onedrive.updateTableRow('POSheetTable', empId, poToSave, 'Emp ID (CBRE)');
-                        else onedrive.addTableRow('POSheetTable', { "S.No": poRows.length + 1, ...poToSave });
+                        else {
+                            const nextSno = await onedrive.getNextSno('POSheetTable');
+                            onedrive.addTableRow('POSheetTable', { "S.No": nextSno, ...poToSave });
+                        }
                     }).catch(e => {});
                 }
             } catch (syncError) {

@@ -141,10 +141,13 @@ async function saveEmployeeData(employeeData) {
             "Billing Category": empData.billing_category || 'No'
         };
         
-        onedrive.getTableRows('EmployeesTable').then(employees => {
+        onedrive.getTableRows('EmployeesTable').then(async employees => {
             const existing = employees.find(e => e["CBRE EMP ID"] === empData.employee_id);
             if (existing) onedrive.updateTableRow('EmployeesTable', empData.employee_id, empToSave, 'CBRE EMP ID');
-            else onedrive.addTableRow('EmployeesTable', { "S.No": employees.length + 1, ...empToSave });
+            else {
+                const nextSno = await onedrive.getNextSno('EmployeesTable');
+                onedrive.addTableRow('EmployeesTable', { "S.No": nextSno, ...empToSave });
+            }
         }).catch(err => console.error("OneDrive Employee Sync Error:", err));
 
         // 3. Upsert attendance in DB
@@ -338,10 +341,13 @@ async function savePOSheetRow(data) {
             "Total Billing Amt (W/O GST)": data.billing_amt_no_gst || '',
             "Timesheet Sent to CBRE": data.timesheet_sent_to_cbre || ''
         };
-        onedrive.getTableRows('POSheetTable').then(poRows => {
+        onedrive.getTableRows('POSheetTable').then(async poRows => {
             const existing = poRows.find(p => p["Emp ID (CBRE)"] === data.employee_id);
             if (existing) onedrive.updateTableRow('POSheetTable', data.employee_id, poToSave, 'Emp ID (CBRE)');
-            else onedrive.addTableRow('POSheetTable', { "S.No": poRows.length + 1, ...poToSave });
+            else {
+                const nextSno = await onedrive.getNextSno('POSheetTable');
+                onedrive.addTableRow('POSheetTable', { "S.No": nextSno, ...poToSave });
+            }
         }).catch(err => console.error("OneDrive PO Sync Error:", err));
 
         return { success: true };

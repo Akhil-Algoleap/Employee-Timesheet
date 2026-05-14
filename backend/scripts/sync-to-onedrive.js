@@ -62,28 +62,39 @@ async function syncAll() {
 
         // 3. Sync PO Sheet
         console.log("\nSyncing PO Sheet Data (Sheet: PO Sheet)...");
-        const poRes = await db.query("SELECT * FROM po_sheet");
+        const poRes = await db.query("SELECT * FROM po_sheet ORDER BY employee_id, year, month");
         const poRows = poRes.rows;
         const onedrivePo = await onedrive.getTableRows('POSheetTable');
         let poSno = 1;
         for (const po of poRows) {
             try {
+                // Fetch employee name for PO sheet
+                const empInfo = emps.find(e => e.employee_id === po.employee_id);
+                
                 const poToSave = {
                     "S.No": poSno++,
                     "Emp ID (CBRE)": po.employee_id,
+                    "Resource Name": empInfo ? empInfo.employee_name : '',
                     "Invoice No": po.invoice_no || '',
                     "PO Number": po.po_number || '',
                     "SOW No": po.sow_no || '',
                     "D&T Leader": po.cbre_idc_leader || '',
-                    "Reporting Manager": po.reporting_manager || '',
+                    "Reporting Manager": empInfo ? empInfo.reporting_manager : '',
                     "Rate Per Hour (INR)": po.rate_per_hour || '',
                     "Notes": po.notes || '',
-                    "Work Location": po.work_location || ''
+                    "Work Location": po.work_location || '',
+                    "Total Working Hours": po.total_hours || '',
+                    "PL Availed": po.pl_availed || '',
+                    "Total Billing Hours": po.total_billing_hours || '',
+                    "Total Billing Amt (W/O GST)": po.billing_amt_no_gst || '',
+                    "Timesheet Sent to CBRE": po.timesheet_sent_to_cbre || ''
                 };
                 const existing = onedrivePo.find(p => p["Emp ID (CBRE)"] === po.employee_id);
                 if (existing) {
+                    console.log(`Updating PO row [${poToSave["S.No"]}]: ${po.employee_id}`);
                     await onedrive.updateTableRow('POSheetTable', po.employee_id, poToSave, 'Emp ID (CBRE)');
                 } else {
+                    console.log(`Adding PO row [${poToSave["S.No"]}]: ${po.employee_id}`);
                     await onedrive.addTableRow('POSheetTable', poToSave);
                 }
                 await sleep(500);
