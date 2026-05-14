@@ -66,8 +66,9 @@ const colToLetter = (col) => {
 
 const normalizeHeaders = (rawHeaders) => {
   return rawHeaders.map((h) => {
-    const trimmed = (h ?? '').toString().trim();
-    return trimmed.toLowerCase() === 'id' ? 'id' : trimmed;
+    const str = (h ?? '').toString().trim().toLowerCase();
+    // Keep 'id' as 'id', others are trimmed and lowercased
+    return str;
   });
 };
 
@@ -136,7 +137,13 @@ const updateTableRow = async (tableName, id, data, keyColumn = 'id') => {
   const existingObj = {};
   headers.forEach((h, i) => { existingObj[h] = values[rowIdx][i] ?? ''; });
 
-  const merged = { ...existingObj, ...data };
+  const merged = { ...existingObj };
+  // Merge data using normalized keys
+  Object.keys(data).forEach(k => {
+    const normK = k.trim().toLowerCase();
+    merged[normK] = data[k];
+  });
+
   const newRow = headers.map((h) => merged[h] ?? '');
 
   const excelRow = rowIdx + 1;

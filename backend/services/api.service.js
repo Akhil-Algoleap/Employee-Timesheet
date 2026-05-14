@@ -454,11 +454,17 @@ async function syncTimesheetRow(employee_id, year, month) {
         row["Total Billing hours"] = totalHours + (plAvailed * 8); // Assuming 8 hrs for PL
 
         const compositeId = `${employee_id}_${year}_${month}`;
-        onedrive.getTableRows('AttendanceTable').then(rows => {
+        try {
+            const rows = await onedrive.getTableRows('AttendanceTable');
             const existing = rows.find(r => r.id === compositeId);
-            if (existing) onedrive.updateTableRow('AttendanceTable', compositeId, row, 'id');
-            else onedrive.addTableRow('AttendanceTable', { "id": compositeId, ...row });
-        }).catch(err => console.error("OneDrive Timesheet Sync Error:", err));
+            if (existing) {
+                await onedrive.updateTableRow('AttendanceTable', compositeId, row, 'id');
+            } else {
+                await onedrive.addTableRow('AttendanceTable', { "id": compositeId, ...row });
+            }
+        } catch (err) {
+            console.error("OneDrive Timesheet Sync Error:", err.message);
+        }
 
     } catch (error) {
         console.error("Error syncing timesheet row:", error);
