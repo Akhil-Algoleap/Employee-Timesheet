@@ -26,24 +26,26 @@ async function syncAll() {
                     "Client": emp.client || 'CBRE',
                     "Billing Category": emp.billing_category || 'No'
                 };
+                // Case-insensitive lookup
                 const existing = onedriveEmps.find(e => {
-                    const idKey = Object.keys(e).find(k => k.toLowerCase().includes('emp id'));
-                    return e[idKey] === emp.employee_id;
+                    const idVal = e['cbre emp id'] || e['cbre empid'] || e['id'];
+                    return idVal === emp.employee_id;
                 });
+
                 if (existing) {
                     console.log(`Updating employee [${empToSave["S.No"]}]: ${emp.employee_name}`);
-                    await onedrive.updateTableRow('EmployeesTable', emp.employee_id, empToSave, 'CBRE EMP ID');
+                    await onedrive.updateTableRow('EmployeesTable', emp.employee_id, empToSave, 'cbre emp id');
                 } else {
                     console.log(`Adding employee [${empToSave["S.No"]}]: ${emp.employee_name}`);
                     await onedrive.addTableRow('EmployeesTable', empToSave);
                 }
-                await sleep(500); 
+                await sleep(400); 
             } catch (e) {
                 console.error(`Failed to sync employee ${emp.employee_id}:`, e.message);
             }
         }
 
-        // 2. Sync Attendance (Sheet: Timesheet)
+        // 2. Sync Attendance
         console.log("\nSyncing Timesheet (Pivoted Monthly)...");
         const uniqueMonths = await db.query("SELECT DISTINCT EXTRACT(YEAR FROM date) as year, EXTRACT(MONTH FROM date) as month FROM attendance WHERE date >= NOW() - INTERVAL '60 days'");
         
@@ -54,9 +56,8 @@ async function syncAll() {
             console.log(`\nSyncing month: ${m}/${y}`);
             for (const emp of emps) {
                 try {
-                    console.log(`Syncing timesheet for ${emp.employee_name}...`);
                     await syncTimesheetRow(emp.employee_id, y, m);
-                    await sleep(1000); 
+                    await sleep(800); 
                 } catch (e) {
                     console.error(`Failed to sync timesheet for ${emp.employee_id}:`, e.message);
                 }
@@ -92,17 +93,17 @@ async function syncAll() {
                         "Work Location": po.work_location || ''
                     };
                     const existing = onedrivePo.find(p => {
-                        const idKey = Object.keys(p).find(k => k.toLowerCase().includes('emp id'));
-                        return p[idKey] === po.employee_id;
+                        const idVal = p['emp id (cbre)'] || p['emp id (ce'] || p['id'];
+                        return idVal === po.employee_id;
                     });
                     if (existing) {
                         console.log(`Updating PO row [${poToSave["S.No"]}]: ${po.employee_id}`);
-                        await onedrive.updateTableRow('POSheetTable', po.employee_id, poToSave, 'Emp ID (CBRE)');
+                        await onedrive.updateTableRow('POSheetTable', po.employee_id, poToSave, 'emp id (cbre)');
                     } else {
                         console.log(`Adding PO row [${poToSave["S.No"]}]: ${po.employee_id}`);
                         await onedrive.addTableRow('POSheetTable', poToSave);
                     }
-                    await sleep(500);
+                    await sleep(400);
                 } catch (e) {
                     console.error(`Failed to sync PO row ${po.id}:`, e.message);
                 }
@@ -111,7 +112,7 @@ async function syncAll() {
             console.error("Critical PO Sync Error:", poErr.message);
         }
 
-        // 4. Sync Automation Logs
+        // 4. Sync Logs
         console.log("\nSyncing Automation Logs...");
         try {
             const logsRes = await db.query("SELECT * FROM timesheet_logs ORDER BY created_at DESC LIMIT 50");
@@ -125,16 +126,13 @@ async function syncAll() {
                         "Status": log.status,
                         "Created At": log.created_at ? log.created_at.toISOString() : ''
                     };
-                    const existing = onedriveLogs.find(l => {
-                        const idKey = Object.keys(l).find(k => k.toLowerCase() === 'id');
-                        return String(l[idKey]) === String(log.id);
-                    });
+                    const existing = onedriveLogs.find(l => String(l['id']) === String(log.id));
                     if (existing) {
                         await onedrive.updateTableRow('LogsTable', log.id, logToSave, 'id');
                     } else {
                         await onedrive.addTableRow('LogsTable', logToSave);
                     }
-                    await sleep(300);
+                    await sleep(200);
                 } catch (e) {
                     console.error(`Failed to sync log ${log.id}:`, e.message);
                 }
